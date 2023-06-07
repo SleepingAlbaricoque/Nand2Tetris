@@ -1,0 +1,43 @@
+// This file is part of www.nand2tetris.org
+// and the book "The Elements of Computing Systems"
+// by Nisan and Schocken, MIT Press.
+// File name: projects/05/Memory.hdl
+
+/**
+ * The complete address space of the Hack computer's memory,
+ * including RAM and memory-mapped I/O. 
+ * The chip facilitates read and write operations, as follows:
+ *     Read:  out(t) = Memory[address(t)](t)
+ *     Write: if load(t-1) then Memory[address(t-1)](t) = in(t-1)
+ * In words: the chip always outputs the value stored at the memory 
+ * location specified by address. If load==1, the in value is loaded 
+ * into the memory location specified by address. This value becomes 
+ * available through the out output from the next time step onward.
+ * Address space rules:
+ * Only the upper 16K+8K+1 words of the Memory chip are used. 
+ * Access to address>0x6000 is invalid. Access to any address in 
+ * the range 0x4000-0x5FFF results in accessing the screen memory 
+ * map. Access to address 0x6000 results in accessing the keyboard 
+ * memory map. The behavior in these addresses is described in the 
+ * Screen and Keyboard chip specifications given in the book.
+ */
+
+CHIP Memory {
+    IN in[16], load, address[15];
+    OUT out[16];
+
+    PARTS:
+    // Decide which load value to set to 1 among RAM16K, screen and keyboard
+    // address bits are two bits since RAM16K has 4 sub RAM4Ks and those two bits decide which RAM4K to choose
+    DMux4Way(in=load, sel=address[13..14], a=loadram1, b=loadram2, c=loadscreen, d=loadKBD);
+    Or(a=loadram1, b=loadram2, out=loadram);
+
+    // First address of Screen is 16384 or 100000000000000 (15 digits), thus address bits for RAM16K can be up to 14 digits, which will be divided into address values for sub RAMs
+    RAM16K(in=in, load=loadram, address=address[0..13], out=outram);
+    // Screen chip takes 13 bit address value
+    Screen(in=in, load=loadscreen, address=address[0..12], out=outscreen);
+    Keyboard(out=outKBD);
+
+    // Decide memory output
+    Mux4Way16(a=outram, b=outram, c=outscreen, d=outKBD, sel=address[13..14], out=out);
+}

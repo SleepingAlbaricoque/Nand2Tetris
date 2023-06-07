@@ -1,0 +1,102 @@
+// This file is part of www.nand2tetris.org
+// and the book "The Elements of Computing Systems"
+// by Nisan and Schocken, MIT Press.
+// File name: projects/05/CPU.hdl
+
+/**
+ * The Hack CPU (Central Processing unit), consisting of an ALU,
+ * two registers named A and D, and a program counter named PC.
+ * The CPU is designed to fetch and execute instructions written in 
+ * the Hack machine language. In particular, functions as follows:
+ * Executes the inputted instruction according to the Hack machine 
+ * language specification. The D and A in the language specification
+ * refer to CPU-resident registers, while M refers to the external
+ * memory location addressed by A, i.e. to Memory[A]. The inM input 
+ * holds the value of this location. If the current instruction needs 
+ * to write a value to M, the value is placed in outM, the address 
+ * of the target location is placed in the addressM output, and the 
+ * writeM control bit is asserted. (When writeM==0, any value may 
+ * appear in outM). The outM and writeM outputs are combinational: 
+ * they are affected instantaneously by the execution of the current 
+ * instruction. The addressM and pc outputs are clocked: although they 
+ * are affected by the execution of the current instruction, they commit 
+ * to their new values only in the next time step. If reset==1 then the 
+ * CPU jumps to address 0 (i.e. pc is set to 0 in next time step) rather 
+ * than to the address resulting from executing the current instruction. 
+ */
+
+CHIP CPU {
+
+    IN  inM[16],         // M value input  (M = contents of RAM[A])
+        instruction[16], // Instruction for execution
+        reset;           // Signals whether to re-start the current
+                         // program (reset==1) or continue executing
+                         // the current program (reset==0).
+
+    OUT outM[16],        // M value output
+        writeM,          // Write to M? 
+        addressM[15],    // Address in data memory (of M)
+        pc[15];          // address of next instruction
+
+    PARTS:
+         // check if the instruction is A instruction or C instruction w/ instruction[15]
+         // if instruction[15] is 0, then A instruction
+         Not(in=instruction[15], out=Ains);
+         // if not A instruction, then C instruction
+         Not(in=Ains, out=Cins);
+
+         // d1 bit of the instruction or instruction[5] determines whether to write to to A register
+         // if C instruction and d1 = 1, send ALU output to A register
+         And(a=Cins, b=instruction[5], out=ALUtoA);
+         // else the instruction is passed on to A register
+         Mux16(a=instruction, b=ALUout, sel=ALUtoA, out=Aregin);
+         
+         // if A instruction or ALU output, write it to A register
+         Or(a=Ains, b=ALUtoA, out=Awrite);
+         ARegister(in=Aregin, load=Awrite, out=outA);
+
+         // check whether A register value or M register input is fed into ALU w/ a bit or instruction[12]
+         Mux16(a=outA, b=inM, sel=instruction[12], out=ALUin);
+
+         // if C instruction and d2 = 1, write ALU output to D register
+         And(a=Cins, b=instruction[4], out=Dwrite);
+         DRegister(in=ALUout, load=Dwrite, out=outD);
+
+         // ALU receives A register and D register values and sends ZR and NG bits to PC
+         ALU(x=outD, y=ALUin, zx=instruction[11], nx=instruction[10], zy=instruction[9], ny=instruction[8], f=instruction[7], no=instruction[6], out=ALUout, zr=ZRout, ng=NGout);
+
+         // output A register value as address in memory
+         // false is 0000000000000000, so outA comes out intact
+         Or16(a=false, b=outA, out[0..14]=addressM);
+
+         // send ALU output to memory address set above
+         Or16(a=false, b=ALUout, out=outM);
+
+         // write ALU output to M register in memory if C instruction and d3 = 1
+         And(a=Cins, b=instruction[3], out=writeM);
+
+         // program counter
+         // if ALU output = 0 and j2 = 1, jeq
+         And(a=ZRout, b=instruction[1], out=jeq);
+         // if ALU output < 0 and j1 =1, jlt
+         And(a=NGout, b=instruction[2], out=jlt);
+         // if ALU output = 0 or < 0 then ALU output is negative
+         Or(a=ZRout, b=NGout, out=EqNeg);
+         // else ALU output is positive
+         Not(in=EqNeg, out=pos);
+         // if ALU output > 0 and j3 = 1, jgt
+         And(a=pos, b=instruction[0], out=jgt);
+         // if jeq or jlt, set it to jle, which applies to both situations
+         Or(a=jeq, b=jlt, out=jle);
+         // if jumping, set jump bit to 1
+         Or(a=jle, b=jgt, out=jumpToA);
+         // if C instruction and jump bit = 1, set PC load value to 1
+         And(a=Cins, b=jumpToA, out=PCload);
+         // if PC load = 0, increment PC value
+         Not(in=PCload, out=PCinc);
+         // set PC value
+         PC(in=outA, inc=PCinc, load=PCload, reset=reset, out[0..14]=pc);
+}
+
+
+// reference: https://www.youtube.com/watch?v=5DDG3HXOVaU
